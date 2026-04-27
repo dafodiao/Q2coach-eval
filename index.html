@@ -973,13 +973,14 @@
                 return;
             }
             
-            container.innerHTML = coaches.map(coach => {
+            container.innerHTML = coaches.map((coach, idx) => {
                 const evalData = storeData.coaches.find(c => c.name === coach.name);
                 const isDone = evalData?.evaluated;
                 const totalScore = evalData?.totalScore || 0;
+                const safeName = coach.name.replace(/'/g, "\\'").replace(/"/g, '\\"');
                 
                 return `
-                    <div class="coach-item" onclick="openEvalModal('${coach.name}')">
+                    <div class="coach-item" data-coach="${safeName}" onclick="openEvalModalByIndex(${idx})">
                         <div class="coach-header">
                             <div>
                                 <div class="coach-name">${coach.name}${coach.added ? ' <span style="color:#f57c00;font-size:11px">+新增</span>' : ''}</div>
@@ -1013,35 +1014,56 @@
                 return;
             }
             
-            storeData.coaches.push({ name, date, evaluated: false });
+            // 添加新教练并完整初始化评分数据
+            const newCoach = { name, date, evaluated: false, items: {}, isAdded: true };
+            storeData.coaches.push(newCoach);
             saveData();
             
             document.getElementById('newCoachName').value = '';
             document.getElementById('newCoachDate').value = '';
-            
             renderCoachList();
+            
+            // 直接打开弹窗
             openEvalModal(name);
         }
         
         // ============ 评分弹窗 ============
+        function openEvalModalByIndex(idx) {
+            const storeData = allData[currentStore];
+            let coaches = [];
+            
+            // 构建完整的教练列表
+            if (INITIAL_COACHES[currentStore]) {
+                INITIAL_COACHES[currentStore].forEach(c => coaches.push({ name: c.name, added: false }));
+            }
+            storeData.coaches.forEach(c => {
+                if (!coaches.some(x => x.name === c.name)) {
+                    coaches.push({ name: c.name, added: true, date: c.date });
+                }
+            });
+            
+            if (idx >= 0 && idx < coaches.length) {
+                openEvalModal(coaches[idx].name);
+            }
+        }
+        
         function openEvalModal(coachName) {
             currentCoach = coachName;
             document.getElementById('modalCoachName').textContent = coachName;
             
             const storeData = allData[currentStore];
             
-            // 确保教练数据在coaches数组中
+            // 查找或创建评分数据，强制确保 items 是对象
             let evalData = storeData.coaches.find(c => c.name === coachName);
             if (!evalData) {
-                // 检查是否是初始教练
-                const isInitial = INITIAL_COACHES[currentStore]?.some(c => c.name === coachName);
-                evalData = { 
-                    name: coachName, 
-                    evaluated: false, 
-                    items: {},
-                    isInitial: isInitial || false
-                };
+                evalData = { name: coachName, evaluated: false, items: {} };
                 storeData.coaches.push(evalData);
+                saveData();
+            }
+            // 兼容旧数据：items 可能是 undefined
+            if (!evalData.items) {
+                evalData.items = {};
+                saveData();
             }
             
             const container = document.getElementById('evalItemsContainer');
@@ -1233,22 +1255,28 @@
             if (!currentStore) return;
             
             const storeData = allData[currentStore];
-            let coaches = [];
             
+            // 构建完整教练列表（和渲染列表完全一致）
+            let coaches = [];
             if (INITIAL_COACHES[currentStore]) {
-                coaches = coaches.concat(INITIAL_COACHES[currentStore].map(c => c.name));
+                INITIAL_COACHES[currentStore].forEach(c => coaches.push(c.name));
             }
             storeData.coaches.forEach(c => {
                 if (!coaches.includes(c.name)) coaches.push(c.name);
             });
             
+            // 只检查确实有评分记录需要完成的教练
+            // 新增教练如果还没开始评，也算未完成
             const unScored = coaches.filter(name => {
                 const evalData = storeData.coaches.find(c => c.name === name);
-                return !evalData?.evaluated;
+                return !evalData || !evalData.evaluated;
             });
             
             if (unScored.length > 0) {
-                alert(`还有 ${unScored.length} 位教练未评分：\n${unScored.join('、')}`);
+                const msg = unScored.length <= 5
+                    ? `还有 ${unScored.length} 位教练未完成评分：\n${unScored.join('、')}\n\n请完成后再提交。`
+                    : `还有 ${unScored.length} 位教练未完成评分，请完成后再提交。`;
+                alert(msg);
                 return;
             }
             
@@ -1259,7 +1287,14 @@
             saveData();
             
             showToast('提交成功 ✓');
-            switchMode('shop');
+            
+            // 跳回选择门店界面
+            setTimeout(() => {
+                document.getElementById('evalSection').classList.add('hidden');
+                document.getElementById('storeSelect').classList.remove('hidden');
+                currentStore = null;
+                populateStoreSelect();
+            }, 1500);
         }
         
         // ============ 总部后台 ============
