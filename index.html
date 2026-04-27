@@ -1014,8 +1014,18 @@
                 return;
             }
             
-            // 添加新教练并完整初始化评分数据
-            const newCoach = { name, date, evaluated: false, items: {}, isAdded: true };
+            // 创建新教练时，直接初始化所有6个评分项的完整结构
+            const newCoach = {
+                name: name,
+                date: date,
+                evaluated: false,
+                items: {}
+            };
+            // 确保 items 的每个键都是有效的对象
+            EVAL_ITEMS.forEach((_, idx) => {
+                newCoach.items[idx] = { score: null, reason: '' };
+            });
+            
             storeData.coaches.push(newCoach);
             saveData();
             
@@ -1023,7 +1033,7 @@
             document.getElementById('newCoachDate').value = '';
             renderCoachList();
             
-            // 直接打开弹窗
+            // 直接打开弹窗进行评分
             openEvalModal(name);
         }
         
@@ -1053,18 +1063,26 @@
             
             const storeData = allData[currentStore];
             
-            // 查找或创建评分数据，强制确保 items 是对象
+            // 查找或创建评分数据，强制确保 items 每个键都存在
             let evalData = storeData.coaches.find(c => c.name === coachName);
             if (!evalData) {
                 evalData = { name: coachName, evaluated: false, items: {} };
                 storeData.coaches.push(evalData);
                 saveData();
             }
-            // 兼容旧数据：items 可能是 undefined
-            if (!evalData.items) {
+            // 确保 items 是对象
+            if (!evalData.items || typeof evalData.items !== 'object') {
                 evalData.items = {};
-                saveData();
             }
+            // 确保每个评分项都有初始化数据
+            let changed = false;
+            EVAL_ITEMS.forEach((_, idx) => {
+                if (!evalData.items[idx] || typeof evalData.items[idx] !== 'object') {
+                    evalData.items[idx] = { score: null, reason: '' };
+                    changed = true;
+                }
+            });
+            if (changed) saveData();
             
             const container = document.getElementById('evalItemsContainer');
             container.innerHTML = EVAL_ITEMS.map((item, idx) => {
@@ -1118,18 +1136,19 @@
             const storeData = allData[currentStore];
             let evalData = storeData.coaches.find(c => c.name === currentCoach);
             
+            // 防御：如果教练数据不存在，创建一个
             if (!evalData) {
-                const isInitial = INITIAL_COACHES[currentStore]?.some(c => c.name === currentCoach);
-                evalData = { 
-                    name: currentCoach, 
-                    evaluated: false, 
-                    items: {},
-                    isInitial: isInitial || false
-                };
+                evalData = { name: currentCoach, evaluated: false, items: {} };
                 storeData.coaches.push(evalData);
             }
+            // 防御：确保 items[idx] 存在
+            if (!evalData.items[idx]) {
+                evalData.items[idx] = { score: null, reason: '' };
+            }
             
-            evalData.items[idx] = { score, reason: evalData.items[idx]?.reason || '' };
+            // 保存原有的原因文本，避免切换选项时丢失
+            const existingReason = evalData.items[idx].reason || '';
+            evalData.items[idx] = { score, reason: existingReason };
             evalData.evaluated = true;
             
             // 更新按钮状态
@@ -1145,21 +1164,21 @@
                 btns[1].classList.add('selected-zero');
             }
             
-            // 更新原因输入区
+            // 更新原因输入区，保留原有原因文本
             const reasonDiv = document.getElementById(`reason-${idx}`);
             if (item.zeroReason || item.fullReason) {
                 if (score === 0 && item.zeroReason) {
                     reasonDiv.classList.add('show');
                     reasonDiv.innerHTML = `
                         <div class="reason-label">⚠️ 请填写0分原因（必填）</div>
-                        <textarea id="reason-text-${idx}" placeholder="请输入扣分原因..."></textarea>
+                        <textarea id="reason-text-${idx}" placeholder="请输入扣分原因...">${existingReason}</textarea>
                         <div class="reason-required" id="reason-error-${idx}">请填写0分原因</div>
                     `;
                 } else if (score === item.score && item.fullReason) {
                     reasonDiv.classList.add('show');
                     reasonDiv.innerHTML = `
                         <div class="case-label">📝 请填写满分案例（必填）</div>
-                        <textarea id="reason-text-${idx}" placeholder="请输入满分获得的具体案例..."></textarea>
+                        <textarea id="reason-text-${idx}" placeholder="请输入满分获得的具体案例...">${existingReason}</textarea>
                         <div class="reason-required" id="reason-error-${idx}">请填写满分案例</div>
                     `;
                 } else {
